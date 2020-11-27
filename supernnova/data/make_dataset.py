@@ -33,22 +33,28 @@ def build_traintestval_splits(settings):
 
     # Read and process files faster with ProcessPoolExecutor
     max_workers = multiprocessing.cpu_count()
-    photo_columns = ["SNID"] + [
-        f"target_{nb_classes}classes"
-        for nb_classes in list([2, len(settings.sntypes.keys())])
-    ]
+    photo_columns = ["SNID"] + list(
+        set(
+            [
+                f"target_{nb_classes}classes"
+                for nb_classes in list([2, len(settings.sntypes.keys())])
+            ]
+        )
+    )
 
-    # Load photometry
-    # either in HEAD.FITS or csv format
-    list_files_tmp = natsorted(glob.glob(os.path.join(settings.raw_dir, "*HEAD.FITS*")))
-    if len(list_files_tmp) > 0:
-        list_files = list_files_tmp
-        fmat = "FITS"
-    else:
-        list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, "*HEAD.csv*")))
-        fmat = "csv"
-    list_files = list_files[:]
-    print("List files", list_files)
+    # Load headers
+    # formats supported FITS (SNANA), csv (SNANA, Plasticc like), hdf5 LSST sims
+    fmat = (
+        glob.glob(os.path.join(settings.raw_dir, "*"))[0]
+        .replace(".gz", "")
+        .split(".")[-1]
+    )
+    if fmat not in ["FITS", "csv", "hdf5"]:
+        logging_utils.print_red(f"File format not supported {fmat}")
+        raise Exception
+    files_to_lists = f"*HEAD.{fmat}*" if fmat != "hdf5" else f"Simu*{fmat}*"
+    list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
+
     # use parallelization to speed up processing
     if not settings.debug:
         if fmat == "FITS":
@@ -57,16 +63,22 @@ def build_traintestval_splits(settings):
                 settings=settings,
                 columns=photo_columns + ["SNTYPE"],
             )
-        else:
+        elif fmat == "csv":
             process_fn = partial(
                 data_utils.process_header_csv,
+                settings=settings,
+                columns=photo_columns + ["SNTYPE"],
+            )
+        elif fmat == "hdf5":
+            process_fn = partial(
+                data_utils.process_header_hdf5,
                 settings=settings,
                 columns=photo_columns + ["SNTYPE"],
             )
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             list_df = executor.map(process_fn, list_files)
     else:
-        logging_utils.print_yellow("Beware debugging mode (only one file processed)")
+        logging_utils.print_yellow("Beware debugging mode (slow)")
         list_df = []
         for fil in list_files:
             if fmat == "FITS":
@@ -75,9 +87,15 @@ def build_traintestval_splits(settings):
                         fil, settings, columns=photo_columns + ["SNTYPE"]
                     )
                 )
-            else:
+            elif fmat == "csv":
                 list_df.append(
                     data_utils.process_header_csv(
+                        fil, settings, columns=photo_columns + ["SNTYPE"]
+                    )
+                )
+            elif fmat == "hdf5":
+                list_df.append(
+                    data_utils.process_header_hdf5(
                         fil, settings, columns=photo_columns + ["SNTYPE"]
                     )
                 )
@@ -217,6 +235,7 @@ def build_traintestval_splits(settings):
                 )
 
                 logging_utils.print_green(f"{split_name} set", str_)
+
     # Save to pickle
     df.to_pickle(f"{settings.processed_dir}/SNID.pickle")
 
@@ -515,7 +534,7 @@ def preprocess_data(settings):
     """Preprocess the FITS data
 
     - Use multiprocessing/threading to speed up data processing
-    - Preprocess every FIT file in the raw data dir
+    - Preprocess every file in the raw data dir
     - Also save a DataFrame of Host Spe for publication plots
 
     Args:
@@ -523,16 +542,26 @@ def preprocess_data(settings):
 
     """
 
-    # Get the list of FITS files
-    list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, f"*PHOT.FITS*")))
-    if len(list_files) > 0:
+    # Load photometry
+    # formats supported FITS (SNANA), csv (SNANA, Plasticc like), hdf5 LSST sims
+    fmat = (
+        glob.glob(os.path.join(settings.raw_dir, "*"))[0]
+        .replace(".gz", "")
+        .split(".")[-1]
+    )
+    if fmat not in ["FITS", "csv", "hdf5"]:
+        logging_utils.print_red(f"File format not supported {fmat}")
+        raise Exception
+    files_to_lists = f"*PHOT.{fmat}*" if fmat != "hdf5" else f"LC*{fmat}*"
+    list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
+
+    if fmat == "FITS":
         # Parameters of multiprocessing below
         parallel_fn = partial(process_single_FITS, settings=settings)
-        # process_single_FITS(list_files[0],settings)
-    else:
-        list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, f"*PHOT.csv*")))
+    elif fmat == "csv":
         parallel_fn = partial(process_single_csv, settings=settings)
-        # process_single_csv(list_files[0],settings)
+    elif fmat == "hdf5":
+        parallel_fn = partial(process_single_hdf5, settings=settings)
 
     logging_utils.print_green("List to preprocess ", list_files)
     max_workers = multiprocessing.cpu_count()
@@ -560,7 +589,11 @@ def preprocess_data(settings):
             out = (
                 process_single_FITS(list_files[i], settings)
                 if "FITS" in list_files[i]
-                else process_single_csv(list_files[i], settings)
+                else (
+                    process_single_csv(list_files[i], settings)
+                    if "csv" in list_files[i]
+                    else process_single_hdf5(list_files[i], settings)
+                )
             )
             host_spe_tmp.append(out)
     # Save host spe for plotting and performance tests

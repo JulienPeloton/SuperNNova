@@ -113,7 +113,7 @@ def tag_type(df, settings, type_column="TYPE"):
 
     if type_column not in df.keys():
         if settings.data_testing:
-            df["SNTYPE"] = np.ones(len(df)).astype(int)
+            df[type_column] = np.ones(len(df)).astype(int)
         else:
             logging_utils.print_red(
                 "Please provide SNTYPE with data (else use data_testing option)"
@@ -253,6 +253,45 @@ def process_header_csv(file_path, settings, columns=None):
 
     if columns is not None:
         df = df[columns]
+    return df
+
+
+def process_header_hdf5(file_path, settings, columns=None):
+    """Read the hdf5 metadata file, add target columns and return
+    in pandas DataFrame format
+
+    Args:
+        file_path (str): the  path to the header FIT file
+        settings (ExperimentSettings): controls experiment hyperparameters
+        columns (lsit): list of columns to keep. Default: ``None``
+
+    Returns:
+        (pandas.DataFrame) the dataframe, with new target columns
+    """
+
+    # Data
+    hfh = h5py.File(file_path, "r")
+    list_k = list(hfh.keys())
+    list_df = []
+    for k in list_k:
+        # to do loop
+        dat = Table.read(hfh[k], format="hdf5")
+        # all columns
+        list_cols = dat.keys()
+        x = dat[list_cols].as_array()
+        df_tmp = pd.DataFrame(x, columns=list_cols)
+        list_df.append(df_tmp)
+
+    df = pd.concat(list_df)
+
+    df["SNID"] = df["SNID"].astype(str)
+    df["SNTYPE"] = df["sn_type"].str.decode("utf-8")
+
+    df = tag_type(df, settings, type_column="SNTYPE")
+
+    if columns is not None:
+        df = df[columns]
+
     return df
 
 
