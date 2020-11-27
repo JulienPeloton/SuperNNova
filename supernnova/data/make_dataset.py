@@ -242,7 +242,7 @@ def build_traintestval_splits(settings):
     logging_utils.print_green("Done")
 
 
-def process_single_FITS(file_path, settings):
+def process_single(file_path, settings, fmat="FITS"):
     """
     Carry out preprocessing on FITS file and save results to pickle.
     Pickle is preferred to csv as it is faster to read and write.
@@ -260,11 +260,17 @@ def process_single_FITS(file_path, settings):
 
     """
     # Load the PHOT file
-    df = data_utils.load_pandas_from_fit(file_path)
-    # Last line may be a line with MJD = -777.
-    # Remove it so that it does not interfere with arr_ID below
-    if df.MJD.values[-1] == -777.0:
-        df = df.drop(df.index[-1])
+    if fmat == "FITS":
+        df = data_utils.load_pandas_from_fit(file_path)
+        # Last line may be a line with MJD = -777.
+        # Remove it so that it does not interfere with arr_ID below
+        if df.MJD.values[-1] == -777.0:
+            df = df.drop(df.index[-1])
+    if fmat == "csv":
+        df = pd.read_csv(file_path)
+        df["SNID"] = df["SNID"].astype(str)
+        df = df.set_index("SNID")
+
     # Keep only columns of interest
     keep_col = ["MJD", "FLUXCAL", "FLUXCALERR", "FLT"]
     df = (
@@ -272,9 +278,15 @@ def process_single_FITS(file_path, settings):
         if settings.phot_reject
         else df[keep_col].copy()
     )
-    # Load the companion HEAD file
-    header = Table.read(file_path.replace("PHOT", "HEAD"), format="fits")
-    df_header = header.to_pandas()
+
+    if fmat == "FITS":
+        # Load the companion HEAD file
+        header = Table.read(file_path.replace("PHOT", "HEAD"), format="fits")
+        df_header = header.to_pandas()
+    elif fmat == "csv":
+        df_header = pd.read_csv(file_path.replace("PHOT", "HEAD"))
+
+    # Formatting (from FITS)
     try:
         df_header["SNID"] = df_header["SNID"].str.decode("utf-8")
     except Exception:
@@ -334,22 +346,24 @@ def process_single_FITS(file_path, settings):
         else:
             logging_utils.print_red("Provide a valid photo_window_file")
 
-    #############################################
-    # Compute SNID for df and join with df_header
-    #############################################
-    arr_ID = np.chararray(len(df), itemsize=15)
-    # New light curves are identified by MJD == -777.0
-    arr_idx = np.where(df["MJD"].values == -777.0)[0]
-    arr_idx = np.hstack((np.array([0]), arr_idx, np.array([len(df)])))
-    # Fill in arr_ID
-    for counter in range(1, len(arr_idx)):
-        start, end = arr_idx[counter - 1], arr_idx[counter]
-        # index starts at zero
-        arr_ID[start:end] = df_header.SNID.iloc[counter - 1]
-    df["SNID"] = arr_ID.astype(str)
-    df["SNID"] = df["SNID"].str.strip()
-    df = df.set_index("SNID")
-    df_header["SNID"] = df_header["SNID"].str.strip()
+    if fmat == "FITS":
+        #############################################
+        # Compute SNID for df and join with df_header
+        #############################################
+        arr_ID = np.chararray(len(df), itemsize=15)
+        # New light curves are identified by MJD == -777.0
+        arr_idx = np.where(df["MJD"].values == -777.0)[0]
+        arr_idx = np.hstack((np.array([0]), arr_idx, np.array([len(df)])))
+        # Fill in arr_ID
+        for counter in range(1, len(arr_idx)):
+            start, end = arr_idx[counter - 1], arr_idx[counter]
+            # index starts at zero
+            arr_ID[start:end] = df_header.SNID.iloc[counter - 1]
+        df["SNID"] = arr_ID.astype(str)
+        df["SNID"] = df["SNID"].str.strip()
+        df = df.set_index("SNID")
+        df_header["SNID"] = df_header["SNID"].str.strip()
+
     df_header = df_header.set_index("SNID")
     # join df and header
     df = df.join(df_header).reset_index()
@@ -429,96 +443,7 @@ def process_single_FITS(file_path, settings):
 
     # Save for future use
     basename = os.path.basename(file_path)
-    df.to_pickle(f"{settings.preprocessed_dir}/{basename.replace('.FITS', '.pickle')}")
-
-    # getting SNIDs for SNe with Host_spec
-    host_spe = df[df["HOSTGAL_SPECZ"] > 0]["SNID"].unique().tolist()
-
-    return host_spe
-
-
-def process_single_csv(file_path, settings):
-    """
-    Carry out preprocessing on csv file and save results to pickle.
-    Pickle is preferred to csv as it is faster to read and write.
-
-    - Compute delta times between measures
-    - Filter preprocessing
-
-    Args:
-        file_path (str): path to ``.csv`` file
-        settings (ExperimentSettings): controls experiment hyperparameters
-
-    """
-    # Load the PHOT file
-    df = pd.read_csv(file_path)
-
-    # Keep only columns of interest
-    keep_col = ["SNID", "MJD", "FLUXCAL", "FLUXCALERR", "FLT"]
-    df = df[keep_col].copy()
-    df["SNID"] = df["SNID"].astype(str)
-    df = df.set_index("SNID")
-
-    # Load the companion HEAD file
-    df_header = pd.read_csv(file_path.replace("PHOT", "HEAD"))
-    # Keep only columns of interest
-    keep_col_header = [
-        "SNID",
-        "PEAKMJD",
-        "HOSTGAL_PHOTOZ",
-        "HOSTGAL_PHOTOZ_ERR",
-        "HOSTGAL_SPECZ",
-        "HOSTGAL_SPECZ_ERR",
-        "SIM_REDSHIFT_CMB",
-        "SIM_PEAKMAG_z",
-        "SIM_PEAKMAG_g",
-        "SIM_PEAKMAG_r",
-        "SIM_PEAKMAG_i",
-        "SNTYPE",
-    ]
-    # check if keys are in header
-    keep_col_header = [k for k in keep_col_header if k in df_header.keys()]
-    df_header = df_header[keep_col_header].copy()
-    df_header["SNID"] = df_header["SNID"].astype(str)
-    df_header["SNID"] = df_header["SNID"].str.strip()
-    df_header = df_header.set_index("SNID")
-    df = df.join(df_header).reset_index()
-
-    if settings.photo_window_files:
-        logging_utils.print_red("Photo window not supported for csv!")
-
-    #############################################
-    # Miscellaneous data processing
-    #############################################
-    # filters have a trailing white space which we remove
-    df.FLT = df.FLT.apply(lambda x: x.rstrip()).values.astype(str)
-    # Drop the delimiter lines
-    df = df[df.MJD != -777.000]
-    # Reset the index (it is no longer continuous after dropping lines)
-    df.reset_index(inplace=True, drop=True)
-    # Add delta time
-    df = data_utils.compute_delta_time(df)
-    # Remove rows post large delta time in the same light curve(delta_time > 150)
-    # df = data_utils.remove_data_post_large_delta_time(df)
-
-    #############################################
-    # Add class and dataset information
-    #############################################
-    df_SNID = pd.read_pickle(f"{settings.processed_dir}/SNID.pickle")
-    # Check all SNID in df are in df_SNID
-    assert np.all(df.SNID.isin(df_SNID.SNID))
-    # Merge left on df: len(df) will not change and will now include
-    # relevant columns from df_SNID
-    merge_columns = ["SNID"]
-    for c_ in [2, len(settings.sntypes.keys())]:
-        merge_columns += [f"target_{c_}classes"]
-        for dataset in ["photometry", "saltfit"]:
-            merge_columns += [f"dataset_{dataset}_{c_}classes"]
-    df = df.merge(df_SNID[merge_columns], on=["SNID"], how="left")
-
-    # Save for future use
-    basename = os.path.basename(file_path)
-    df.to_pickle(f"{settings.preprocessed_dir}/{basename.replace('.FITS', '.pickle')}")
+    df.to_pickle(f"{settings.preprocessed_dir}/{basename.replace(fmat, '.pickle')}")
 
     # getting SNIDs for SNe with Host_spec
     host_spe = (
@@ -555,13 +480,7 @@ def preprocess_data(settings):
     files_to_lists = f"*PHOT.{fmat}*" if fmat != "hdf5" else f"LC*{fmat}*"
     list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
 
-    if fmat == "FITS":
-        # Parameters of multiprocessing below
-        parallel_fn = partial(process_single_FITS, settings=settings)
-    elif fmat == "csv":
-        parallel_fn = partial(process_single_csv, settings=settings)
-    elif fmat == "hdf5":
-        parallel_fn = partial(process_single_hdf5, settings=settings)
+    parallel_fn = partial(process_single, settings=settings, fmat=fmat)
 
     logging_utils.print_green("List to preprocess ", list_files)
     max_workers = multiprocessing.cpu_count()
@@ -586,15 +505,7 @@ def preprocess_data(settings):
         logging_utils.print_yellow("Beware debugging mode")
         # for debugging only (parallelization needs to be commented)
         for i in range(len(list_files)):
-            out = (
-                process_single_FITS(list_files[i], settings)
-                if "FITS" in list_files[i]
-                else (
-                    process_single_csv(list_files[i], settings)
-                    if "csv" in list_files[i]
-                    else process_single_hdf5(list_files[i], settings)
-                )
-            )
+            out = process_single(list_files[i], settings, fmat)
             host_spe_tmp.append(out)
     # Save host spe for plotting and performance tests
     host_spe = [item for sublist in host_spe_tmp for item in sublist]
