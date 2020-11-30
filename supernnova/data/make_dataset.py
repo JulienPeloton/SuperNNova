@@ -1,5 +1,6 @@
 import os
 import glob
+import h5py
 import shutil
 import numpy as np
 import pandas as pd
@@ -37,7 +38,7 @@ def build_traintestval_splits(settings):
         set(
             [
                 f"target_{nb_classes}classes"
-                for nb_classes in list([2, len(settings.sntypes.keys())])
+                for nb_classes in list(set([2, len(settings.sntypes.keys())]))
             ]
         )
     )
@@ -141,7 +142,7 @@ def build_traintestval_splits(settings):
     # Save a dataframe to record train/test/val split for
     # binary, ternary and all-classes classification
     for dataset in ["saltfit", "photometry"]:
-        for nb_classes in list([2, len(settings.sntypes.keys())]):
+        for nb_classes in list(set([2, len(settings.sntypes.keys())])):
             logging_utils.print_green(
                 f"Computing {dataset} splits for {nb_classes}-way classification"
             )
@@ -242,7 +243,7 @@ def build_traintestval_splits(settings):
     logging_utils.print_green("Done")
 
 
-def process_single(file_path, settings, fmat="FITS"):
+def process_single_PHOT(file_path, settings, fmat="FITS"):
     """
     Carry out preprocessing on FITS file and save results to pickle.
     Pickle is preferred to csv as it is faster to read and write.
@@ -257,40 +258,74 @@ def process_single(file_path, settings, fmat="FITS"):
     Args:
         file_path (str): path to ``.FITS`` file
         settings (ExperimentSettings): controls experiment hyperparameters
+        fmat (str): indicates format of input (FITS, csv, hdf5)
 
     """
     # Load the PHOT file
     if fmat == "FITS":
+        # Load the companion HEAD file
+        header = Table.read(file_path.replace("PHOT", "HEAD"), format="fits")
+        df_header = header.to_pandas()
+        # Load photometry
         df = data_utils.load_pandas_from_fit(file_path)
         # Last line may be a line with MJD = -777.
         # Remove it so that it does not interfere with arr_ID below
         if df.MJD.values[-1] == -777.0:
             df = df.drop(df.index[-1])
-    if fmat == "csv":
+
+    elif fmat == "csv":
+        # Load the companion HEAD file
+        df_header = pd.read_csv(file_path.replace("PHOT", "HEAD"))
+        # Load photometry
         df = pd.read_csv(file_path)
         df["SNID"] = df["SNID"].astype(str)
         df = df.set_index("SNID")
 
+    elif fmat == "hdf5":
+        # Load header with SNIDs and keys
+        df_header = data_utils.process_header_hdf5(
+            file_path.replace("LC", "Simu"), settings, notag=True
+        )
+        # Load photometry
+        hf = h5py.File(file_path, "r")
+        list_df = []
+        for snid, idx in df_header[["SNID", "index_hdf5"]].values:
+            # TO DO optimise (currently processing only 20 lcs)
+            meta_h = list(hf[f"lc_{idx}"].attrs.keys())
+            meta_v = list(hf[f"lc_{idx}"].attrs.values())
+            df_meta = pd.DataFrame(meta_v, index=meta_h)
+            photometry = Table.read(hf[f"lc_{idx}"], format="hdf5")
+            # Hack to avoid
+            # *** ValueError: Big-endian buffer not supported on little-endian compiler
+            list_cols = photometry.keys()
+            x = photometry[list_cols].as_array()
+            df_tmp = pd.DataFrame(x, columns=list_cols)
+            df_tmp["SNID"] = np.array([snid] * len(df_tmp))
+            # Reformatting to SNANA keys
+            df_tmp["FLUXCAL"] = df_tmp["flux"]
+            df_tmp["FLUXCALERR"] = df_tmp["fluxerr"]
+            df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
+            df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
+            df_tmp["MJD"] = df_tmp["time"]
+            list_df.append(df_tmp)
+        df = pd.concat(list_df)
+
     # Keep only columns of interest
     keep_col = ["MJD", "FLUXCAL", "FLUXCALERR", "FLT"]
+    keep_col += ["SNID"] if "SNID" in df.keys() else []
+
     df = (
         df[keep_col + [settings.phot_reject]].copy()
         if settings.phot_reject
         else df[keep_col].copy()
     )
 
-    if fmat == "FITS":
-        # Load the companion HEAD file
-        header = Table.read(file_path.replace("PHOT", "HEAD"), format="fits")
-        df_header = header.to_pandas()
-    elif fmat == "csv":
-        df_header = pd.read_csv(file_path.replace("PHOT", "HEAD"))
-
     # Formatting (from FITS)
-    try:
+    if isinstance(df_header.SNID.iloc[0], bytes):
         df_header["SNID"] = df_header["SNID"].str.decode("utf-8")
-    except Exception:
+    else:
         df_header["SNID"] = df_header["SNID"].astype(str)
+
     # Keep only columns of interest
     # Hack for using the final redshift not the galaxy
     if settings.redshift_label != "none":
@@ -364,9 +399,8 @@ def process_single(file_path, settings, fmat="FITS"):
         df = df.set_index("SNID")
         df_header["SNID"] = df_header["SNID"].str.strip()
 
-    df_header = df_header.set_index("SNID")
     # join df and header
-    df = df.join(df_header).reset_index()
+    df = pd.merge(df, df_header, on="SNID", how="left").reset_index(drop=True)
 
     #############################################
     # Photometry window & quality (flag) selection
@@ -412,7 +446,8 @@ def process_single(file_path, settings, fmat="FITS"):
     #############################################
     # Miscellaneous data processing
     #############################################
-    df = df[keep_col + keep_col_header].copy()
+    keep = keep_col + [k for k in keep_col_header if k not in keep_col]
+    df = df[keep].copy()
     # filters have a trailing white space which we remove
     df.FLT = df.FLT.apply(lambda x: x.rstrip()).values.astype(str)
     # keep only filters we are going to use for classification
@@ -443,7 +478,8 @@ def process_single(file_path, settings, fmat="FITS"):
 
     # Save for future use
     basename = os.path.basename(file_path)
-    df.to_pickle(f"{settings.preprocessed_dir}/{basename.replace(fmat, '.pickle')}")
+
+    df.to_pickle(f"{settings.preprocessed_dir}/{basename.replace(fmat, 'pickle')}")
 
     # getting SNIDs for SNe with Host_spec
     host_spe = (
@@ -480,7 +516,7 @@ def preprocess_data(settings):
     files_to_lists = f"*PHOT.{fmat}*" if fmat != "hdf5" else f"LC*{fmat}*"
     list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
 
-    parallel_fn = partial(process_single, settings=settings, fmat=fmat)
+    parallel_fn = partial(process_single_PHOT, settings=settings, fmat=fmat)
 
     logging_utils.print_green("List to preprocess ", list_files)
     max_workers = multiprocessing.cpu_count()
@@ -502,10 +538,10 @@ def preprocess_data(settings):
                 # Need to cast to list because executor returns an iterator
                 host_spe_tmp += list(executor.map(parallel_fn, list_files[start:end]))
     else:
-        logging_utils.print_yellow("Beware debugging mode")
+        logging_utils.print_yellow("Beware debugging mode (slow)")
         # for debugging only (parallelization needs to be commented)
         for i in range(len(list_files)):
-            out = process_single(list_files[i], settings, fmat)
+            out = process_single_PHOT(list_files[i], settings, fmat)
             host_spe_tmp.append(out)
     # Save host spe for plotting and performance tests
     host_spe = [item for sublist in host_spe_tmp for item in sublist]
@@ -581,7 +617,7 @@ def pivot_dataframe_single_from_df(df, settings):
     # drop columns that won"t be used onwards
     df = df.drop(["MJD", "delta_time"], 1)
     class_columns = []
-    for c_ in list([2, len(settings.sntypes.keys())]):
+    for c_ in list(set([2, len(settings.sntypes.keys())])):
         class_columns += [f"target_{c_}classes"]
         for dataset in ["photometry", "saltfit"]:
             class_columns += [f"dataset_{dataset}_{c_}classes"]
@@ -721,7 +757,8 @@ def make_dataset(settings):
     preprocess_data(settings)
 
     # Pivot dataframe
-    list_files = natsorted(glob.glob(f"{settings.preprocessed_dir}/*PHOT*"))
+    list_files = natsorted(glob.glob(f"{settings.preprocessed_dir}/*"))
+
     pivot_dataframe_batch(list_files, settings)
 
     # Aggregate the pivoted dataframe

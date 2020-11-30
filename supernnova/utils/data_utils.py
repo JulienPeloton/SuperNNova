@@ -256,14 +256,15 @@ def process_header_csv(file_path, settings, columns=None):
     return df
 
 
-def process_header_hdf5(file_path, settings, columns=None):
+def process_header_hdf5(file_path, settings, columns=None, notag=False):
     """Read the hdf5 metadata file, add target columns and return
     in pandas DataFrame format
 
     Args:
         file_path (str): the  path to the header FIT file
         settings (ExperimentSettings): controls experiment hyperparameters
-        columns (lsit): list of columns to keep. Default: ``None``
+        columns (list): list of columns to keep. Default: ``None``
+        notag (Boolean): class partition tagging
 
     Returns:
         (pandas.DataFrame) the dataframe, with new target columns
@@ -272,22 +273,31 @@ def process_header_hdf5(file_path, settings, columns=None):
     # Data
     hfh = h5py.File(file_path, "r")
     list_k = list(hfh.keys())
+
+    if settings.debug:
+        logging_utils.print_yellow("Processing only first two tables of header")
+        list_k = list_k[:2]
+
     list_df = []
     for k in list_k:
         # to do loop
         dat = Table.read(hfh[k], format="hdf5")
-        # all columns
+        # Hack to avoid
+        # *** ValueError: Big-endian buffer not supported on little-endian compiler
         list_cols = dat.keys()
         x = dat[list_cols].as_array()
         df_tmp = pd.DataFrame(x, columns=list_cols)
+        df_tmp["index_hdf5"] = df_tmp.index_hdf5.str.decode("utf-8")
         list_df.append(df_tmp)
 
     df = pd.concat(list_df)
 
     df["SNID"] = df["SNID"].astype(str)
     df["SNTYPE"] = df["sn_type"].str.decode("utf-8")
+    df["PEAKMJD"] = df["daymax"]
 
-    df = tag_type(df, settings, type_column="SNTYPE")
+    if not notag:
+        df = tag_type(df, settings, type_column="SNTYPE")
 
     if columns is not None:
         df = df[columns]
@@ -521,7 +531,11 @@ def save_to_HDF5(settings, df):
         logging_utils.print_green("Saving misc features")
         for feat in list_misc_features:
             if feat == "SNTYPE":
-                dtype = np.dtype("int32")
+                dtype = (
+                    np.dtype("int32")
+                    if isinstance(df.SNTYPE.iloc[0], np.int64)
+                    else h5py.string_dtype(encoding="utf-8")
+                )
             else:
                 dtype = np.dtype("float32")
             hf.create_dataset(feat, data=df[feat].values[start_idxs], dtype=dtype)
