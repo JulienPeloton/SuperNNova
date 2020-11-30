@@ -396,11 +396,12 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
             arr_ID[start:end] = df_header.SNID.iloc[counter - 1]
         df["SNID"] = arr_ID.astype(str)
         df["SNID"] = df["SNID"].str.strip()
-        df = df.set_index("SNID")
         df_header["SNID"] = df_header["SNID"].str.strip()
 
     # join df and header
-    df = pd.merge(df, df_header, on="SNID", how="left").reset_index(drop=True)
+    df = df.set_index("SNID")
+    df_header = df_header.set_index("SNID")
+    df = df.join(df_header).reset_index()
 
     #############################################
     # Photometry window & quality (flag) selection
