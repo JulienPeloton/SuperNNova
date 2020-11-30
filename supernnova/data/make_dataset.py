@@ -279,7 +279,6 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
         # Load photometry
         df = pd.read_csv(file_path)
         df["SNID"] = df["SNID"].astype(str)
-        df = df.set_index("SNID")
 
     elif fmat == "hdf5":
         # Load header with SNIDs and keys
