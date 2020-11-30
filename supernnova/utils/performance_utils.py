@@ -18,7 +18,9 @@ def performance_metrics(df, sample_target=0):
     n_targets = len(np.unique(df["target"]))
 
     # Accuracy & AUC
-    accuracy = metrics.balanced_accuracy_score(df["target"].astype(int), df["predicted_target"])
+    accuracy = metrics.balanced_accuracy_score(
+        df["target"].astype(int), df["predicted_target"]
+    )
     accuracy = round(accuracy * 100, 2)
     if n_targets == 2:  # valid for biclass only
         auc = round(metrics.roc_auc_score(df["target"], df["class1"]), 4)
@@ -59,7 +61,9 @@ def contamination_by_SNTYPE(df, settings, sample_target=0):
     # Get contamination percentage
     contribution_arr = []
     type_arr = []
-    for typ in [int(t) for t in settings.sntypes.keys() if t != 101]:
+    keys_ia = [key for (key, value) in settings.sntypes.items() if value == "Ia"]
+    keys_cont = [t for t in settings.sntypes.keys() if t not in keys_ia]
+    for typ in keys_cont:
         df_selection = df_cont[df_cont["SNTYPE"] == typ]
         if sample_size > 1:
             contribution_arr.append(round(100 * len(df_selection) / sample_size, 2))
@@ -174,9 +178,10 @@ def reformat_df(df, key, keep=None, group_bayesian=False):
     if keep:
         cols_to_keep += keep
     tmp_df[cols_to_keep] = df[cols_to_keep].copy()
+
     # if variational or bayesian we can get the median prediction only
     if group_bayesian:
-        tmp_df = tmp_df.groupby("SNID", as_index=False).median()
+        tmp_df = tmp_df.groupby(["SNID", "SNTYPE"], as_index=False).median()
     # protect against NaNs (e.g. too early classifications)
     tmp_df = tmp_df[~np.isnan(tmp_df["class0"])]
     # set predicted target to max value in columns
@@ -186,6 +191,7 @@ def reformat_df(df, key, keep=None, group_bayesian=False):
         .str.strip("class")
         .astype(int)
     )
+
     return tmp_df
 
 

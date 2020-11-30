@@ -98,12 +98,8 @@ def get_metrics_singlemodel(settings, prediction_file=None, model_type="rnn"):
         )
 
         dump_dir = f"{settings.models_dir}/{model_name}"
-        prediction_file = (
-            f"{dump_dir}/" f"PRED_{model_name}.pickle"
-        )
-        metrics_file = (
-            f"{dump_dir}/" f"METRICS_{model_name}.pickle"
-        )
+        prediction_file = f"{dump_dir}/" f"PRED_{model_name}.pickle"
+        metrics_file = f"{dump_dir}/" f"METRICS_{model_name}.pickle"
         source_data = settings.source_data
 
     assert os.path.isfile(prediction_file), lu.str_to_redstr(
@@ -195,17 +191,19 @@ def get_rnn_performance_metrics_singlemodel(settings, df, host_zspe_list):
         perf_dic[f"{savekey}_purity"] = purity
         perf_dic[f"{savekey}_efficiency"] = efficiency
         for sntype, contamination_percentage in contamination_df.values:
-            perf_dic[
-                f"{savekey}_contamination_{int(sntype)}"
-            ] = contamination_percentage
+            perf_dic[f"{savekey}_contamination_{sntype}"] = contamination_percentage
 
         # Reweighted for SNe with zspe
         zspe_df = selection[selection["SNID"].isin(host_zspe_list)]
         if len(zspe_df) > 0:
             zspe_df = pu.reformat_df(zspe_df, key, group_bayesian=group_bayesian)
-            accuracy_zspe, auc_zspe, purity_zspe, efficiency_zspe, _ = pu.performance_metrics(
-                zspe_df
-            )
+            (
+                accuracy_zspe,
+                auc_zspe,
+                purity_zspe,
+                efficiency_zspe,
+                _,
+            ) = pu.performance_metrics(zspe_df)
         else:
             accuracy_zspe, auc_zspe, purity_zspe, efficiency_zspe = (0.0, 0.0, 0.0, 0.0)
 
@@ -241,9 +239,13 @@ def get_randomforest_performance_metrics_singlemodel(settings, df, host_zspe_lis
     # Reweighted for SNe with zspe
     zspe_df = zspe_df[zspe_df["SNID"].isin(host_zspe_list)]
     if len(zspe_df) > 0:
-        accuracy_zspe, auc_zspe, purity_zspe, efficiency_zspe, _ = pu.performance_metrics(
-            zspe_df
-        )
+        (
+            accuracy_zspe,
+            auc_zspe,
+            purity_zspe,
+            efficiency_zspe,
+            _,
+        ) = pu.performance_metrics(zspe_df)
     else:
         accuracy_zspe, auc_zspe, purity_zspe, efficiency_zspe = (0.0, 0.0, 0.0, 0.0)
 
@@ -416,7 +418,7 @@ def get_classification_stats_singlemodel(df, nb_classes):
         # percentage of non-classified lcs
         threshold = {2: 0.6, 3: 0.4, 7: 0.2}  # choosing half of the score
         idx = np.where(np.max(arr_preds, axis=1) < threshold[nb_classes])[0]
-        percentage = len(idx) * 100. / len(arr_preds)
+        percentage = len(idx) * 100.0 / len(arr_preds)
         list_clf_stats.append(percentage)
 
         data = np.array(list_clf_stats).reshape(1, -1)
