@@ -301,7 +301,7 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
             df_tmp = pd.DataFrame(x, columns=list_cols)
             df_tmp["SNID"] = np.array([snid] * len(df_tmp))
             # Reformatting to SNANA keys
-            df_tmp["FLUXCAL"] = df_tmp["flux"]
+            df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
             df_tmp["FLUXCALERR"] = df_tmp["fluxerr"]
             df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
             df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
