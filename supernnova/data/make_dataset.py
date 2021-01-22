@@ -285,6 +285,7 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
         df_header = data_utils.process_header_hdf5(
             file_path.replace("LC", "Simu"), settings, notag=True
         )
+
         # Load photometry
         hf = h5py.File(file_path, "r")
         list_df = []
@@ -298,15 +299,19 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
             # *** ValueError: Big-endian buffer not supported on little-endian compiler
             list_cols = photometry.keys()
             x = photometry[list_cols].as_array()
-            df_tmp = pd.DataFrame(x, columns=list_cols)
-            df_tmp["SNID"] = np.array([snid] * len(df_tmp))
-            # Reformatting to SNANA keys
-            df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
-            df_tmp["FLUXCALERR"] = df_tmp["fluxerr"]
-            df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
-            df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
-            df_tmp["MJD"] = df_tmp["time"]
-            list_df.append(df_tmp)
+            # empty photometry
+            if len(x) > 0:
+                df_tmp = pd.DataFrame(x, columns=list_cols)
+                df_tmp["SNID"] = np.array([snid] * len(df_tmp))
+                # Reformatting to SNANA keys
+                df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
+                df_tmp["FLUXCALERR"] = df_tmp["fluxerr"]
+                df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
+                df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
+                df_tmp["MJD"] = df_tmp["time"]
+                list_df.append(df_tmp)
+            else:
+                logging_utils.print_yellow(f"empty photometry for lc_{idx}")
         df = pd.concat(list_df)
 
     # Keep only columns of interest
