@@ -30,7 +30,10 @@ def plot_lightcurves(df, SNIDs, settings):
         df_temp = df.loc[SNID]
 
         # Prepare plotting data in a dict
-        d = {flt: {"FLUXCAL": [], "FLUXCALERR": [], "MJD": []} for flt in settings.list_filters}
+        d = {
+            flt: {"FLUXCAL": [], "FLUXCALERR": [], "MJD": []}
+            for flt in settings.list_filters
+        }
 
         current_time = 0
         for idx in range(len(df_temp)):
@@ -46,7 +49,7 @@ def plot_lightcurves(df, SNIDs, settings):
             if len(time) > 0:
                 flux = d[flt]["FLUXCAL"]
                 fluxerr = d[flt]["FLUXCALERR"]
-                ax.errorbar(time, flux, yerr=fluxerr, label=f"Filter {flt}")
+                ax.errorbar(time, flux, yerr=fluxerr, label=f"Filter {flt}", fmt="o")
 
         ax.set_title(SNID, fontsize=18)
         ax.legend(loc="best")
@@ -63,10 +66,13 @@ def plot_random_preprocessed_lightcurves(settings, SNIDs):
         settings (ExperimentSettings): controls experiment hyperparameters
         SNIDs (list): list of SN lightcurve IDs to plot
     """
-
-    list_files = [
-        f for f in glob.glob(os.path.join(settings.preprocessed_dir, "*_PHOT.pickle"))
-    ]
+    list_files = glob.glob(os.path.join(settings.preprocessed_dir, "*_PHOT.pickle"))
+    # support other formats
+    if len(list_files) < 1:
+        list_files = glob.glob(os.path.join(settings.preprocessed_dir, "*.pickle"))
+        if len(list_files) < 1:
+            print("Preprocessed folder may be erased")
+    list_files = [f for f in list_files]
 
     df = pd.concat(list(map(pd.read_pickle, list_files))).set_index("SNID")
 
@@ -102,15 +108,11 @@ def plot_lightcurves_from_hdf5(settings, SNID_idxs):
 
             df = pd.DataFrame(data, columns=features)
 
-            non_filter_columns = [
-                "FLUXCAL_g",
-                "FLUXCAL_i",
-                "FLUXCAL_r",
-                "FLUXCAL_z",
-                "FLUXCALERR_g",
-                "FLUXCALERR_i",
-                "FLUXCALERR_r",
-                "FLUXCALERR_z",
+            non_filter_columns = []
+            for flt in settings.list_filters:
+                non_filter_columns.append(f"FLUXCAL_{flt}")
+                non_filter_columns.append(f"FLUXCALERR_{flt}")
+            non_filter_columns += [
                 "delta_time",
                 "HOSTGAL_PHOTOZ",
                 "HOSTGAL_PHOTOZ_ERR",
@@ -137,7 +139,9 @@ def plot_lightcurves_from_hdf5(settings, SNID_idxs):
                 arr_flux = df[f"FLUXCAL_{FLT}"].values[idxs]
                 arr_fluxerr = df[f"FLUXCALERR_{FLT}"].values[idxs]
                 arr_time = df["delta_time"].cumsum().values[idxs]
-                ax.errorbar(arr_time, arr_flux, yerr=arr_fluxerr, label=f"Filter {FLT}")
+                ax.errorbar(
+                    arr_time, arr_flux, yerr=arr_fluxerr, label=f"Filter {FLT}", fmt="o"
+                )
 
                 if np.max(arr_flux) > max_y:
                     max_y = np.max(arr_flux)
