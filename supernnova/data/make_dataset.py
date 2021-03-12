@@ -45,14 +45,7 @@ def build_traintestval_splits(settings):
 
     # Load headers
     # formats supported FITS (SNANA), csv (SNANA, Plasticc like), hdf5 LSST sims
-    fmat = (
-        glob.glob(os.path.join(settings.raw_dir, "*"))[0]
-        .replace(".gz", "")
-        .split(".")[-1]
-    )
-    if fmat not in ["FITS", "csv", "hdf5"]:
-        logging_utils.print_red(f"File format not supported {fmat}")
-        raise Exception
+    fmat = data_utils.find_extensions_in_dir(settings.raw_dir)
     files_to_lists = f"*HEAD.{fmat}*" if fmat != "hdf5" else f"Simu*{fmat}*"
     list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
 
@@ -304,8 +297,20 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
                 df_tmp = pd.DataFrame(x, columns=list_cols)
                 df_tmp["SNID"] = np.array([snid] * len(df_tmp))
                 # Reformatting to SNANA keys
-                df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
-                df_tmp["FLUXCALERR"] = df_tmp["fluxerr"]
+                # df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
+                # flux_AB = 23.9 - np.log(df_tmp["flux"]) / 2.5  # AB mag
+                # df_tmp["FLUXCAL"] = np.power(10, (-0.4 * flux_AB + 11))
+                # fluxerr_AB = 23.9 - np.log(df_tmp["fluxerr"]) / 2.5
+                # df_tmp["FLUXCALERR"] = np.power(10, (-0.4 * fluxerr_AB + 11))
+                mag = -2.5 * np.log(df_tmp.flux_e_sec) - 48.5
+                df_tmp["FLUXCAL"] = np.power(10, ((-0.4 * mag)))  # + 11))
+                df_tmp[df_tmp["FLUXCAL"].isna()] = 0
+
+                magerr = (-2.5 * np.log(df_tmp.flux_e_sec) - 48.5) / 10
+                df_tmp["FLUXCALERR"] = np.power(10, ((-0.4 * magerr)))  # + 11))
+                df_tmp[df_tmp["FLUXCALERR"].isna()] = 0
+                # dummy to fix
+
                 df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
                 df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
                 df_tmp["MJD"] = df_tmp["time"]
@@ -510,14 +515,7 @@ def preprocess_data(settings):
 
     # Load photometry
     # formats supported FITS (SNANA), csv (SNANA, Plasticc like), hdf5 LSST sims
-    fmat = (
-        glob.glob(os.path.join(settings.raw_dir, "*"))[0]
-        .replace(".gz", "")
-        .split(".")[-1]
-    )
-    if fmat not in ["FITS", "csv", "hdf5"]:
-        logging_utils.print_red(f"File format not supported {fmat}")
-        raise Exception
+    fmat = data_utils.find_extensions_in_dir(settings.raw_dir)
     files_to_lists = f"*PHOT.{fmat}*" if fmat != "hdf5" else f"LC*{fmat}*"
     list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
 
@@ -773,7 +771,6 @@ def make_dataset(settings):
     logging_utils.print_green("Concatenating pivot")
 
     df = pd.concat([pd.read_pickle(f) for f in list_files], axis=0)
-
     # Save to HDF5
     data_utils.save_to_HDF5(settings, df)
 
