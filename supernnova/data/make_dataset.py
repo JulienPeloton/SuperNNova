@@ -46,13 +46,15 @@ def build_traintestval_splits(settings):
     # Load headers
     # formats supported FITS (SNANA), csv (SNANA, Plasticc like), hdf5 LSST sims
     fmat = (
-        glob.glob(os.path.join(settings.raw_dir, "*"))[0]
+        glob.glob(os.path.join(settings.raw_dir, "*HEAD.*"))[0]
         .replace(".gz", "")
         .split(".")[-1]
     )
-    if fmat not in ["FITS", "csv", "hdf5"]:
-        logging_utils.print_red(f"File format not supported {fmat}")
-        raise Exception
+    if fmat not in ["FITS", "csv"]:
+        fmat = (glob.glob(os.path.join(settings.raw_dir, "Simu*"))[0].replace(".gz", "").split(".")[-1])
+        if fmat != "hdf5":
+            logging_utils.print_red(f"File format not supported {fmat}")
+            raise Exception
     files_to_lists = f"*HEAD.{fmat}*" if fmat != "hdf5" else f"Simu*{fmat}*"
     list_files = natsorted(glob.glob(os.path.join(settings.raw_dir, files_to_lists)))
 
