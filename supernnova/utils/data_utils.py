@@ -292,6 +292,7 @@ def process_header_hdf5(file_path, settings, columns=None, notag=False):
 
     df = pd.concat(list_df)
 
+    df["SNID"] = df["SNID"].str.decode("utf-8")
     df["SNID"] = df["SNID"].astype(str)
     df["SNTYPE"] = df["sn_type"].str.decode("utf-8")
     df["PEAKMJD"] = df["daymax"]
@@ -702,3 +703,17 @@ def save_to_HDF5(settings, df):
         ):
             arr = arr_feat[idx_pair[0] : idx_pair[1]]
             hf["data"][idx] = np.ravel(arr)
+
+
+def find_extensions_in_dir(dir_path):
+    extensions = []
+    for files in glob.glob(f"{dir_path}/*"):
+        ext = Path(files).suffixes
+        sel = [e.replace(".", "") for e in ext if e in [".FITS", ".csv", ".hdf5"]]
+        if len(sel) > 0:
+            extensions.append(sel[0])
+    if len(extensions) > 0:
+        return list(set(extensions))[0]
+    else:
+        logging_utils.print_red(f"File format not supported")
+        raise Exception
