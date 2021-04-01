@@ -297,20 +297,20 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
                 df_tmp = pd.DataFrame(x, columns=list_cols)
                 df_tmp["SNID"] = np.array([snid] * len(df_tmp))
                 # Reformatting to SNANA keys
-                # df_tmp["FLUXCAL"] = df_tmp["flux"]  # jansky
-                # flux_AB = 23.9 - np.log(df_tmp["flux"]) / 2.5  # AB mag
-                # df_tmp["FLUXCAL"] = np.power(10, (-0.4 * flux_AB + 11))
-                # fluxerr_AB = 23.9 - np.log(df_tmp["fluxerr"]) / 2.5
-                # df_tmp["FLUXCALERR"] = np.power(10, (-0.4 * fluxerr_AB + 11))
-                mag = -2.5 * np.log(df_tmp.flux_e_sec) - 48.5
-                df_tmp["FLUXCAL"] = np.power(10, ((-0.4 * mag)))  # + 11))
+                # df_tmp["flux"]  # jansky
+                # snr_m5 = f / sigma f
+                # delta m = - 2.5 delta f / f = 2.5 / snr_m5 ;
+                df_tmp["FLUXCAL"] = np.power(10, ((-0.4 * df_tmp["mag"]) + 11))
                 df_tmp[df_tmp["FLUXCAL"].isna()] = 0
 
-                magerr = (-2.5 * np.log(df_tmp.flux_e_sec) - 48.5) / 10
-                df_tmp["FLUXCALERR"] = np.power(10, ((-0.4 * magerr)))  # + 11))
+                df_tmp["FLUXCALERR"] = (
+                    0.4
+                    * 2.5
+                    * np.log(10)
+                    * np.power(10, ((-0.4 * df_tmp["mag"].values) + 11))
+                    / df_tmp["snr_m5"]
+                )
                 df_tmp[df_tmp["FLUXCALERR"].isna()] = 0
-                # dummy to fix
-
                 df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
                 df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
                 df_tmp["MJD"] = df_tmp["time"]
