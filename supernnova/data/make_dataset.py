@@ -274,50 +274,15 @@ def process_single_PHOT(file_path, settings, fmat="FITS"):
         df["SNID"] = df["SNID"].astype(str)
 
     elif fmat == "hdf5":
+
         # Load header with SNIDs and keys
         df_header = data_utils.process_header_hdf5(
             file_path.replace("LC", "Simu"), settings, notag=True
         )
+        list_to_process = df_header[["SNID", "index_hdf5"]].values.tolist()
 
         # Load photometry
-        hf = h5py.File(file_path, "r")
-        list_df = []
-        for snid, idx in df_header[["SNID", "index_hdf5"]].values:
-            # TO DO optimise (currently processing only 20 lcs)
-            meta_h = list(hf[f"lc_{idx}"].attrs.keys())
-            meta_v = list(hf[f"lc_{idx}"].attrs.values())
-            df_meta = pd.DataFrame(meta_v, index=meta_h)
-            photometry = Table.read(hf[f"lc_{idx}"], format="hdf5")
-            # Hack to avoid
-            # *** ValueError: Big-endian buffer not supported on little-endian compiler
-            list_cols = photometry.keys()
-            x = photometry[list_cols].as_array()
-            # empty photometry
-            if len(x) > 0:
-                df_tmp = pd.DataFrame(x, columns=list_cols)
-                df_tmp["SNID"] = np.array([snid] * len(df_tmp))
-                # Reformatting to SNANA keys
-                # df_tmp["flux"]  # jansky
-                # snr_m5 = f / sigma f
-                # delta m = - 2.5 delta f / f = 2.5 / snr_m5 ;
-                df_tmp["FLUXCAL"] = np.power(10, ((-0.4 * df_tmp["mag"]) + 11))
-                df_tmp[df_tmp["FLUXCAL"].isna()] = 0
-
-                df_tmp["FLUXCALERR"] = (
-                    0.4
-                    * 2.5
-                    * np.log(10)
-                    * np.power(10, ((-0.4 * df_tmp["mag"].values) + 11))
-                    / df_tmp["snr_m5"]
-                )
-                df_tmp[df_tmp["FLUXCALERR"].isna()] = 0
-                df_tmp["band"] = df_tmp["band"].str.decode("utf-8")
-                df_tmp["FLT"] = df_tmp["band"].str.strip("LSST::")
-                df_tmp["MJD"] = df_tmp["time"]
-                list_df.append(df_tmp)
-            else:
-                logging_utils.print_yellow(f"empty photometry for lc_{idx}")
-        df = pd.concat(list_df)
+        df = data_utils.process_photometry_hdf5(list_to_process, file_path)
 
     # Keep only columns of interest
     keep_col = ["MJD", "FLUXCAL", "FLUXCALERR", "FLT"]
