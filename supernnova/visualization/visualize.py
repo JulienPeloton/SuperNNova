@@ -71,7 +71,9 @@ def plot_random_preprocessed_lightcurves(settings, SNIDs):
     if len(list_files) < 1:
         list_files = glob.glob(os.path.join(settings.preprocessed_dir, "*.pickle"))
         if len(list_files) < 1:
-            print("Preprocessed folder may be erased")
+            from ..utils import logging_utils
+
+            logging_utils.print_red("Preprocessed folder may be erased")
     list_files = [f for f in list_files]
 
     df = pd.concat(list(map(pd.read_pickle, list_files))).set_index("SNID")
@@ -181,3 +183,9 @@ def visualize(settings):
 
     plot_random_preprocessed_lightcurves(settings, SNIDs)
     plot_lightcurves_from_hdf5(settings, SNID_idxs)
+
+    # removing preprocessed
+    if settings.data:
+        import shutil
+
+        shutil.rmtree(settings.preprocessed_dir)

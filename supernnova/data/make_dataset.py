@@ -749,6 +749,7 @@ def make_dataset(settings):
         )
 
     # Clean preprocessed directory
-    shutil.rmtree(settings.preprocessed_dir)
+    if not settings.explore_lightcurves:
+        shutil.rmtree(settings.preprocessed_dir)
 
     logging_utils.print_green("Finished making dataset")
