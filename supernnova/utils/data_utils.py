@@ -718,34 +718,28 @@ def find_extensions_in_dir(dir_path):
         logging_utils.print_red(f"File format not supported")
         raise Exception
 
-def process_photometry_hdf5(list_compressed,file_path):
+
+def process_photometry_hdf5(list_compressed, file_path):
     """
     """
     list_df = []
-
+    list_photo = []
+    list_SNID = []
     with h5py.File(file_path, "r") as hf:
-        for snid, idx in (list_compressed):
+        for i, (snid, idx) in enumerate(tqdm(list_compressed)):
+            photometry = hf[f"lc_{idx}"][:]
+            arr_SNID = np.array([snid] * len(photometry))
+            list_SNID.append(arr_SNID)
+            list_photo.append(photometry)
 
-            # meta_h = list(hf[f"lc_{idx}"].attrs.keys())
-            # meta_v = list(hf[f"lc_{idx}"].attrs.values())
-            # df_meta = pd.DataFrame(meta_v, index=meta_h)
-            
-            photometry = Table.read(hf[f"lc_{idx}"], format="hdf5")
+    tmp = np.concatenate(list_photo)
+    df = pd.DataFrame(tmp)
 
-            # Hack to avoid
-            # *** ValueError: Big-endian buffer not supported on little-endian compiler
-            list_cols = photometry.keys()
-            photo = photometry[list_cols].as_array()
-            # empty photometry
-            if len(photo) > 0:
-                df_tmp = pd.DataFrame(photo, columns=list_cols)
-                df_tmp["SNID"] = np.array([snid] * len(df_tmp))
-                list_df.append(df_tmp)
-            else:
-                logging_utils.print_yellow(f"empty photometry for lc_{idx}")
-            
-    df = pd.concat(list_df)
-    
+    tmp_SNID = np.concatenate(list_SNID)
+    df["SNID"] = tmp_SNID
+
+    # df = pd.concat(list_df)
+
     # Fix unit conversion
     mag = -2.5 * np.log(df.flux_e_sec) - 48.5
     df["FLUXCAL"] = np.power(10, ((-0.4 * mag)))  # + 11))
@@ -760,6 +754,5 @@ def process_photometry_hdf5(list_compressed,file_path):
     df["band"] = df["band"].str.decode("utf-8")
     df["FLT"] = df["band"].str.strip("LSST::")
     df["MJD"] = df["time"]
-
 
     return df
